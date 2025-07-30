@@ -128,35 +128,8 @@
     </div>
 
     <script>
-        // Make sure you're using HTTPS ngrok URL
-        const API_BASE = ' https://f829c2b7829a.ngrok-free.app'; // Must be HTTPS, not HTTP
+        const API_BASE = 'https://f829c2b7829a.ngrok-free.app'; // Make sure this matches your current ngrok URL
 
-        // Universal API request function
-        async function makeAPIRequest(endpoint, options = {}) {
-            try {
-                const response = await fetch(`${API_BASE}${endpoint}`, {
-                    ...options,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json',
-                        'ngrok-skip-browser-warning': 'true',
-                        ...options.headers
-                    }
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    console.error('API Error Response:', errorText);
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-
-                return await response.json();
-            } catch (error) {
-                console.error('API Request failed:', error);
-                throw error;
-            }
-        }
-        
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
@@ -234,18 +207,26 @@
                 
                 const imageData = captureImage();
                 
-                const result = await makeAPIRequest('/register', {
+                const response = await fetch(`${API_BASE}/register`, {
                     method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
                     body: JSON.stringify({
                         name: name,
                         image: imageData
                     })
                 });
 
-                showStatus(`✅ ${result.message}`, 'success', 'registerStatus');
-                document.getElementById('personName').value = '';
-                updateButtons();
+                const result = await response.json();
                 
+                if (response.ok) {
+                    showStatus(`✅ ${result.message}`, 'success', 'registerStatus');
+                    document.getElementById('personName').value = '';
+                    updateButtons();
+                } else {
+                    showStatus(`❌ ${result.detail}`, 'error', 'registerStatus');
+                }
             } catch (error) {
                 showStatus(`❌ Registration failed: ${error.message}`, 'error', 'registerStatus');
             }
@@ -257,20 +238,30 @@
                 
                 const imageData = captureImage();
                 
-                const result = await makeAPIRequest('/recognize', {
+                const response = await fetch(`${API_BASE}/recognize`, {
                     method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
                     body: JSON.stringify({
                         image: imageData
                     })
                 });
 
-                if (result.recognized) {
-                    showStatus(`🎯 Recognized: ${result.name} (Distance: ${result.distance.toFixed(3)})`, 'success', 'recognizeStatus');
-                    await logAttendance(result.name);
-                } else {
-                    showStatus(`❓ Unknown person (Distance: ${result.distance.toFixed(3)})`, 'error', 'recognizeStatus');
-                }
+                const result = await response.json();
                 
+                if (response.ok) {
+                    if (result.recognized) {
+                        showStatus(`🎯 Recognized: ${result.name} (Distance: ${result.distance.toFixed(3)})`, 'success', 'recognizeStatus');
+                        
+                        // Log attendance
+                        await logAttendance(result.name);
+                    } else {
+                        showStatus(`❓ Unknown person (Distance: ${result.distance.toFixed(3)})`, 'error', 'recognizeStatus');
+                    }
+                } else {
+                    showStatus(`❌ Recognition failed: ${result.detail}`, 'error', 'recognizeStatus');
+                }
             } catch (error) {
                 showStatus(`❌ Recognition failed: ${error.message}`, 'error', 'recognizeStatus');
             }
@@ -278,16 +269,21 @@
 
         async function logAttendance(name) {
             try {
-                const result = await makeAPIRequest('/attendance', {
+                const response = await fetch(`${API_BASE}/attendance`, {
                     method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
                     body: JSON.stringify({
                         name: name
                     })
                 });
 
+                const result = await response.json();
+                
                 if (result.success) {
                     showStatus(`📝 ${result.message}`, 'success', 'recognizeStatus');
-                    loadAttendanceRecords();
+                    loadAttendanceRecords(); // Refresh records
                 } else {
                     showStatus(`⚠️ ${result.message}`, 'info', 'recognizeStatus');
                 }
@@ -298,19 +294,7 @@
 
         async function loadAttendanceRecords() {
             try {
-                const response = await fetch(`${API_BASE}/attendance`, {
-                    method: 'GET',
-                    headers: {
-                        'ngrok-skip-browser-warning': 'true',
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json'
-                    }
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-
+                const response = await fetch(`${API_BASE}/attendance`);
                 const result = await response.json();
                 
                 const recordsDiv = document.getElementById('attendanceRecords');
@@ -318,6 +302,7 @@
                 if (result.records && result.records.length > 0) {
                     let html = '<h3>Recent Attendance:</h3>';
                     result.records.slice(-10).reverse().forEach(record => {
+                        // Format timestamp for better display
                         const date = new Date(record.timestamp);
                         const formattedTime = date.toLocaleString('en-US', {
                             year: 'numeric',
@@ -339,11 +324,87 @@
                     recordsDiv.innerHTML = '<p>No attendance records found.</p>';
                 }
             } catch (error) {
-                console.error('Full error details:', error);
                 document.getElementById('attendanceRecords').innerHTML = 
                     `<p style="color: red;">Failed to load records: ${error.message}</p>`;
             }
         }
+
+        function showStatus(message, type, elementId) {
+            const element = document.getElementById(elementId);
+            element.innerHTML = `<div class="status ${type}">${message}</div>`;
+            
+            // Auto-clear after 5 seconds for success messages
+            if (type === 'success') {
+                setTimeout(() => {
+                    element.innerHTML = '';
+                }, 5000);
+            }
+        }
+
+        // Load initial data
+        loadAttendanceRecords();
+
+        // API helper function with better error handling
+        async function makeAPIRequest(endpoint, options = {}) {
+            const url = `${API_BASE}${endpoint}`;
+            console.log('Making request to:', url);
+            
+            const defaultOptions = {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'ngrok-skip-browser-warning': 'true',
+                    'Accept': 'application/json'
+                },
+                mode: 'cors'
+            };
+            
+            try {
+                const response = await fetch(url, { ...defaultOptions, ...options });
+                console.log('Response status:', response.status);
+                
+                // Check if response is ok
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Error response:', errorText);
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+                
+                const result = await response.json();
+                console.log('API Response:', result);
+                return result;
+                
+            } catch (error) {
+                console.error('Fetch error:', error);
+                
+                // More specific error messages
+                if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                    throw new Error('Cannot connect to server. Check if the API is running and the URL is correct.');
+                } else if (error.message.includes('CORS')) {
+                    throw new Error('CORS error. Server may not be configured properly.');
+                } else {
+                    throw error;
+                }
+            }
+        }
+
+        // Test API connection on page load
+        async function testAPIConnection() {
+            try {
+                console.log('Testing API connection...');
+                const result = await makeAPIRequest('/');
+                console.log('✅ API Connected:', result);
+                showStatus('✅ API Connected', 'success', 'registerStatus');
+            } catch (error) {
+                console.error('❌ API Connection Failed:', error);
+                showStatus(`❌ API Connection Failed: ${error.message}`, 'error', 'registerStatus');
+            }
+        }
+
+        // Test connection when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            testAPIConnection();
+            loadAttendanceRecords();
+        });
     </script>
 </body>
 </html>
