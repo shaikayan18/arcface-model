@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import cv2
 import numpy as np
 import base64
@@ -11,6 +12,27 @@ from attendance_backend import ArcFaceAttendanceBackend
 
 app = FastAPI(title="ArcFace Attendance System", version="1.0.0")
 
+# Enhanced CORS configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify your domain
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+    expose_headers=["*"]
+)
+
+# Add OPTIONS handler for preflight requests
+@app.options("/{path:path}")
+async def options_handler(path: str):
+    return JSONResponse(
+        content={},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
 
 # Initialize backend
 backend = ArcFaceAttendanceBackend(threshold=0.8)
@@ -53,18 +75,8 @@ async def register_person(data: dict):
         # Register person
         success, message = backend.register_person(name, image)
         
-        response = JSONResponse(content={
-            "success": success,
-            "message": message
-        })
-        
-        # Add CORS headers
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "*"
-        
         if success:
-            return response
+            return JSONResponse(content={"success": True, "message": message})
         else:
             raise HTTPException(status_code=400, detail=message)
             
@@ -88,18 +100,11 @@ async def recognize_person(data: dict):
         # Recognize person
         name, distance = backend.recognize_person(image)
         
-        response = JSONResponse(content={
+        return JSONResponse(content={
             "name": name if name else "Unknown",
             "distance": float(distance),
             "recognized": name is not None
         })
-        
-        # Add CORS headers
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "*"
-        
-        return response
         
     except HTTPException:
         raise
@@ -142,91 +147,13 @@ async def get_attendance_records():
     """Get attendance records"""
     try:
         records = backend.get_attendance_records()
-        
-        # Ensure we return proper JSON
-        response = JSONResponse(content={"records": records})
-        
-        # Add CORS headers
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "*"
-        response.headers["Content-Type"] = "application/json"
-        
-        return response
-        
+        return JSONResponse(content={"records": records})
     except Exception as e:
-        print(f"Error getting attendance: {e}")  # Debug log
         raise HTTPException(status_code=500, detail=f"Failed to get attendance: {str(e)}")
 
 @app.get("/")
 async def root():
     return {"message": "ArcFace Attendance System API"}
 
-@app.middleware("http")
-async def add_cors_headers(request: Request, call_next):
-    """Add CORS headers to all responses"""
-    response = await call_next(request)
-    
-    # Add CORS headers
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "*"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    
-    return response
-
-@app.options("/{path:path}")
-async def options_handler(path: str):
-    """Handle preflight OPTIONS requests"""
-    return Response(
-        status_code=200,
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Allow-Credentials": "true",
-        }
-    )
-
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
