@@ -11,7 +11,6 @@ import uvicorn
 from attendance_backend import ArcFaceAttendanceBackend
 
 app = FastAPI(title="ArcFace Attendance System", version="1.0.0")
-
 # Enhanced CORS configuration
 app.add_middleware(
     CORSMiddleware,
