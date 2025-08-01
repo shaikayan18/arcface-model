@@ -125,10 +125,17 @@
             <button id="refreshRecords">🔄 Refresh Records</button>
             <div id="attendanceRecords"></div>
         </div>
+
+        <!-- IP Activity Tracking -->
+        <div class="section">
+            <h2>🌐 IP Activity Tracking</h2>
+            <button id="refreshIPRecords">🔄 Refresh IP Records</button>
+            <div id="ipRecords"></div>
+        </div>
     </div>
 
     <script>
-        const API_BASE = ' https://6770ac1e5b07.ngrok-free.app'; // Make sure this matches your current ngrok URL
+        const API_BASE = 'https://6770ac1e5b07.ngrok-free.app'; // Make sure this matches your current ngrok URL
 
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
@@ -150,6 +157,7 @@
         
         // Records
         document.getElementById('refreshRecords').addEventListener('click', loadAttendanceRecords);
+        document.getElementById('refreshIPRecords').addEventListener('click', loadIPRecords);
 
         async function startCamera() {
             try {
@@ -294,36 +302,64 @@
 
         async function loadAttendanceRecords() {
             try {
-                const response = await fetch(`${API_BASE}/attendance`);
+                console.log('Fetching attendance records from:', `${API_BASE}/attendance`);
+                
+                const response = await fetch(`${API_BASE}/attendance`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'ngrok-skip-browser-warning': 'true'
+                    },
+                    mode: 'cors'
+                });
+                
+                console.log('Response status:', response.status);
+                console.log('Response headers:', response.headers.get('content-type'));
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Error response:', errorText);
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                // Check if response is actually JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const responseText = await response.text();
+                    console.error('Non-JSON response:', responseText);
+                    throw new Error('Server returned HTML instead of JSON. Check if API server is running correctly.');
+                }
+                
                 const result = await response.json();
+                console.log('API Response:', result);
                 
                 const recordsDiv = document.getElementById('attendanceRecords');
                 
                 if (result.records && result.records.length > 0) {
                     let html = '<h3>Recent Attendance:</h3>';
-                    result.records.slice(-10).reverse().forEach(record => {
-                        // Format timestamp for better display
-                        const date = new Date(record.timestamp);
-                        const formattedTime = date.toLocaleString('en-US', {
-                            year: 'numeric',
-                            month: '2-digit',
-                            day: '2-digit',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            second: '2-digit',
-                            hour12: false
-                        });
+                    
+                    // Get last 10 records and reverse for newest first
+                    const recentRecords = result.records.slice(-10).reverse();
+                    
+                    recentRecords.forEach(record => {
+                        let formattedTime = record.timestamp || 'Unknown time';
                         
                         html += `<div style="padding: 8px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between;">
-                            <strong>${record.name}</strong> 
+                            <strong>${record.name || 'Unknown'}</strong> 
                             <span style="color: #666;">${formattedTime}</span>
                         </div>`;
                     });
+                    
                     recordsDiv.innerHTML = html;
                 } else {
                     recordsDiv.innerHTML = '<p>No attendance records found.</p>';
                 }
+                
+                console.log('✅ Attendance records refreshed successfully');
+                
             } catch (error) {
+                console.error('❌ Failed to load attendance records:', error);
                 document.getElementById('attendanceRecords').innerHTML = 
                     `<p style="color: red;">Failed to load records: ${error.message}</p>`;
             }
@@ -400,10 +436,50 @@
             }
         }
 
+        async function loadIPRecords() {
+            try {
+                const result = await makeAPIRequest('/ip-records');
+                
+                const recordsDiv = document.getElementById('ipRecords');
+                
+                if (result.records && result.records.length > 0) {
+                    let html = '<h3>Recent IP Activity:</h3>';
+                    html += '<div style="max-height: 300px; overflow-y: auto;">';
+                    
+                    result.records.slice(-20).reverse().forEach(record => {
+                        const date = new Date(record.timestamp);
+                        const formattedTime = date.toLocaleString();
+                        
+                        // Color code by action
+                        let actionColor = '#666';
+                        if (record.action === 'registration') actionColor = '#28a745';
+                        if (record.action === 'recognition') actionColor = '#007bff';
+                        if (record.action === 'attendance') actionColor = '#ffc107';
+                        
+                        html += `<div style="padding: 8px; border-bottom: 1px solid #eee; display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; font-size: 12px;">
+                            <strong>${record.name}</strong>
+                            <span style="color: #666;">${record.ip_address}</span>
+                            <span style="color: ${actionColor}; font-weight: bold;">${record.action}</span>
+                            <span style="color: #999;">${formattedTime}</span>
+                        </div>`;
+                    });
+                    
+                    html += '</div>';
+                    recordsDiv.innerHTML = html;
+                } else {
+                    recordsDiv.innerHTML = '<p>No IP records found.</p>';
+                }
+            } catch (error) {
+                document.getElementById('ipRecords').innerHTML = 
+                    `<p style="color: red;">Failed to load IP records: ${error.message}</p>`;
+            }
+        }
+
         // Test connection when page loads
         document.addEventListener('DOMContentLoaded', () => {
             testAPIConnection();
             loadAttendanceRecords();
+            loadIPRecords();
         });
     </script>
 </body>
