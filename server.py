@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import cv2
@@ -11,6 +11,22 @@ import uvicorn
 from attendance_backend import ArcFaceAttendanceBackend
 
 app = FastAPI(title="ArcFace Attendance System", version="1.0.0")
+
+def get_client_ip(request: Request) -> str:
+    """Extract client IP address from request"""
+    # Check for forwarded IP (from proxy/ngrok)
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    
+    # Check for real IP (from proxy)
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip
+    
+    # Fallback to direct client IP
+    return request.client.host if request.client else "unknown"
+
 # Enhanced CORS configuration
 app.add_middleware(
     CORSMiddleware,
@@ -59,7 +75,7 @@ def decode_base64_image(image_data: str) -> np.ndarray:
         raise HTTPException(status_code=400, detail=f"Invalid image data: {str(e)}")
 
 @app.post("/register")
-async def register_person(data: dict):
+async def register_person(data: dict, request: Request):
     """Register a new person with their face"""
     try:
         name = data.get('name')
@@ -68,6 +84,9 @@ async def register_person(data: dict):
         if not name or not image_data:
             raise HTTPException(status_code=400, detail="Name and image are required")
         
+        # Get client IP
+        client_ip = get_client_ip(request)
+        
         # Decode image
         image = decode_base64_image(image_data)
         
@@ -75,6 +94,8 @@ async def register_person(data: dict):
         success, message = backend.register_person(name, image)
         
         if success:
+            # Log IP activity
+            backend.log_ip_activity(name, client_ip, "registration")
             return JSONResponse(content={"success": True, "message": message})
         else:
             raise HTTPException(status_code=400, detail=message)
@@ -85,7 +106,7 @@ async def register_person(data: dict):
         raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
 
 @app.post("/recognize")
-async def recognize_person(data: dict):
+async def recognize_person(data: dict, request: Request):
     """Recognize a person from image"""
     try:
         image_data = data.get('image')
@@ -93,11 +114,18 @@ async def recognize_person(data: dict):
         if not image_data:
             raise HTTPException(status_code=400, detail="Image is required")
         
+        # Get client IP
+        client_ip = get_client_ip(request)
+        
         # Decode image
         image = decode_base64_image(image_data)
         
         # Recognize person
         name, distance = backend.recognize_person(image)
+        
+        # Log IP activity if person recognized
+        if name:
+            backend.log_ip_activity(name, client_ip, "recognition")
         
         return JSONResponse(content={
             "name": name if name else "Unknown",
@@ -111,7 +139,7 @@ async def recognize_person(data: dict):
         raise HTTPException(status_code=500, detail=f"Recognition failed: {str(e)}")
 
 @app.post("/attendance")
-async def log_attendance(data: dict):
+async def log_attendance(data: dict, request: Request):
     """Log attendance for a person"""
     try:
         name = data.get('name')
@@ -119,8 +147,14 @@ async def log_attendance(data: dict):
         if not name:
             raise HTTPException(status_code=400, detail="Name is required")
         
+        # Get client IP
+        client_ip = get_client_ip(request)
+        
         # Log attendance
         success, message = backend.log_attendance(name)
+        
+        # Log IP activity
+        backend.log_ip_activity(name, client_ip, "attendance")
         
         return JSONResponse(content={
             "success": success,
@@ -149,6 +183,15 @@ async def get_attendance_records():
         return JSONResponse(content={"records": records})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get attendance: {str(e)}")
+
+@app.get("/ip-records")
+async def get_ip_records():
+    """Get IP tracking records"""
+    try:
+        records = backend.get_ip_records()
+        return JSONResponse(content={"records": records})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get IP records: {str(e)}")
 
 @app.get("/")
 async def root():
